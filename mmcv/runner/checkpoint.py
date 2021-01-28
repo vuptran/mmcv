@@ -282,6 +282,48 @@ def _load_checkpoint(filename, map_location=None):
     return checkpoint
 
 
+def load_checkpoint(model, checkpoint_file, map_location=None):
+    """
+    Function to load pruned model or normal model checkpoint.
+    :param str checkpoint_file: path to checkpoint file, such as `models/ckpt/mobilenet.pth`
+    """
+    checkpoint = _load_checkpoint(checkpoint_file, map_location)
+    #checkpoint = torch.load(checkpoint_file, map_location="cpu")
+    #net = self.get_compress_part()
+    #### load pruned model ####
+    for key, module in model.named_modules():
+        # torch.nn.BatchNorm2d
+        if isinstance(module, torch.nn.BatchNorm2d):
+            module.weight = torch.nn.Parameter(checkpoint[key + ".weight"])
+            module.bias = torch.nn.Parameter(checkpoint[key + ".bias"])
+            module.num_features = module.weight.size(0)
+            module.running_mean = module.running_mean[0 : module.num_features]
+            module.running_var = module.running_var[0 : module.num_features]
+        # torch.nn.Conv2d
+        elif isinstance(module, torch.nn.Conv2d):
+            # for conv2d layer, bias and groups should be consider
+            module.weight = torch.nn.Parameter(checkpoint[key + ".weight"])
+            module.out_channels = module.weight.size(0)
+            module.in_channels = module.weight.size(1)
+            if module.groups is not 1:
+                # group convolution case
+                # only support for MobileNet, pointwise conv
+                module.in_channels = module.weight.size(0)
+                module.groups = module.in_channels
+            if key + ".bias" in checkpoint:
+                module.bias = torch.nn.Parameter(checkpoint[key + ".bias"])
+        # torch.nn.Linear
+        elif isinstance(module, torch.nn.Linear):
+            module.weight = torch.nn.Parameter(checkpoint[key + ".weight"])
+            if key + ".bias" in checkpoint:
+                module.bias = torch.nn.Parameter(checkpoint[key + ".bias"])
+            module.out_features = module.weight.size(0)
+            module.in_features = module.weight.size(1)
+
+    model.load_state_dict(checkpoint)
+    return checkpoint
+
+'''
 def load_checkpoint(model,
                     filename,
                     map_location=None,
@@ -317,7 +359,7 @@ def load_checkpoint(model,
         state_dict = {k[7:]: v for k, v in state_dict.items()}
     # load state_dict
     load_state_dict(model, state_dict, strict, logger)
-    return checkpoint
+    return checkpoint'''
 
 
 def weights_to_cpu(state_dict):
